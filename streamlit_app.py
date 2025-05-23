@@ -43,7 +43,7 @@ else:
 @st.cache_data
 def load_combined_data():
     try:
-        df = pd.read_csv("data/combined_social_data.csv")
+        df = pd.read_csv("combined_social_data.csv")
         df['created_at'] = pd.to_datetime(df['created_at'], errors='coerce')
         st.write(f"Loaded CSV with shape: {df.shape}")
         st.write(f"Columns: {list(df.columns)}")
