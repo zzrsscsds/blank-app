@@ -14,6 +14,17 @@ import matplotlib.pyplot as plt
 from statsmodels.tsa.arima.model import ARIMA
 import numpy as np
 
+import os
+
+st.write("当前目录文件列表：", os.listdir())
+if "combined_social_data.csv" in os.listdir():
+    st.success("找到了 combined_social_data.csv 文件！")
+    df = pd.read_csv("combined_social_data.csv")
+    st.write(df.head())
+else:
+    st.error("未找到 combined_social_data.csv！")
+
+
 # Download NLTK resources if not already present
 try:
     nltk.data.find('tokenizers/punkt')
