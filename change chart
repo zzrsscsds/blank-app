@@ -1,0 +1,194 @@
+        st.subheader("📊 Engagement & Sentiment Over Time")
+        if not time_series.empty:
+            fig, ax = plt.subplots()
+            ax.plot(time_series['created_at'], time_series['engagement'], label='Engagement (Likes + Retweets)', color='tab:blue')
+            ax.set_ylabel('Engagement', color='tab:blue')
+            ax.tick_params(axis='y', labelcolor='tab:blue')
+
+            ax2 = ax.twinx()
+            ax2.plot(time_series['created_at'], time_series['sentiment'], label='Sentiment (Mean)', color='tab:orange')
+            ax2.set_ylabel('Sentiment', color='tab:orange')
+            ax2.tick_params(axis='y', labelcolor='tab:orange')
+
+            ax.set_xlabel('Time')
+            ax.set_title('Engagement & Sentiment Over Time')
+            fig.autofmt_xdate()
+            st.pyplot(fig)
+        else:
+            st.warning("No data available for engagement and sentiment trends. Check if 'created_at' is valid.")
+
+        # --- 情绪分布柱状图 ---
+        st.subheader("💬 Sentiment Distribution")
+        if filtered_df['sentiment'].notnull().sum() > 0:
+            sentiment_binned = pd.cut(filtered_df['sentiment'], bins=10)
+            sentiment_counts = sentiment_binned.value_counts().sort_index()
+            fig, ax = plt.subplots()
+            sentiment_counts.plot(kind='bar', ax=ax, color='tab:green')
+            ax.set_title('Sentiment Distribution')
+            ax.set_xlabel('Sentiment Range')
+            ax.set_ylabel('Count')
+            st.pyplot(fig)
+        else:
+            st.warning("No sentiment data available to display distribution.")
+
+        # --- 最佳发布时间 ---
+        st.subheader("⏰ Optimal Posting Times")
+        filtered_df['hour'] = filtered_df['created_at'].dt.hour
+        hourly_engagement = filtered_df.groupby('hour')['engagement'].mean().reset_index()
+        if not hourly_engagement.empty:
+            fig, ax = plt.subplots()
+            ax.bar(hourly_engagement['hour'], hourly_engagement['engagement'], color='mediumpurple')
+            ax.set_xlabel('Hour of Day')
+            ax.set_ylabel('Average Engagement')
+            ax.set_title('Optimal Posting Times')
+            st.pyplot(fig)
+        else:
+            st.warning("No data available for optimal posting times.")
+
+        # --- 预测结果对比图 ---
+        st.subheader("📈 Predicted vs Actual Engagement")
+        chart_df = X_test.copy()
+        chart_df['Predicted Engagement'] = y_pred
+        chart_df['Actual Engagement'] = y_test.values
+        fig, ax = plt.subplots()
+        ax.plot(chart_df.index, chart_df['Predicted Engagement'], label='Predicted', color='tab:purple')
+        ax.plot(chart_df.index, chart_df['Actual Engagement'], label='Actual', color='tab:red')
+        ax.set_title('Predicted vs Actual Engagement')
+        ax.set_xlabel('Post Index')
+        ax.set_ylabel('Engagement')
+        ax.legend()
+        st.pyplot(fig)
+
+        if len(processed_texts) >= 2:
+            vectorizer = CountVectorizer(max_df=0.9, min_df=1, max_features=1000)
+            dtm = vectorizer.fit_transform(processed_texts)
+            lda = LatentDirichletAllocation(n_components=3, random_state=42)
+            lda.fit(dtm)
+            words = vectorizer.get_feature_names_out()
+            for i, topic_dist in enumerate(lda.components_):
+                topic_words = [words[i] for i in topic_dist.argsort()[-5:][::-1]]
+                st.write(f"**Topic {i+1}:** {', '.join(topic_words)}")
+        else:
+            hashtags = filtered_df['text'].str.findall(r'#\\w+').explode().value_counts().head(5)
+            st.write("**Top Hashtags**: " + ", ".join(hashtags.index if not hashtags.empty else ["No hashtags found"]))
+
+
+        st.subheader("📅 48-Hour Engagement Forecast")
+        if len(time_series) >= 5:
+            try:
+                model = ARIMA(time_series['engagement'].fillna(0), order=(1, 1, 1))
+                model_fit = model.fit()
+                forecast = model_fit.forecast(steps=48)
+                forecast_df = pd.DataFrame({
+                    'Time': pd.date_range(start=time_series['created_at'].max(), periods=48, freq='H'),
+                    'Forecasted Engagement': forecast
+                })
+                chart_config = {
+                    "type": "line",
+                    "data": {
+                        "labels": forecast_df['Time'].dt.strftime('%Y-%m-%d %H:%M').tolist(),
+                        "datasets": [{
+                            "label": "Forecasted Engagement",
+                            "data": forecast_df['Forecasted Engagement'].tolist(),
+                            "borderColor": "#2ca02c",
+                            "backgroundColor": "rgba(44, 160, 44, 0.2)",
+                            "fill": False
+                        }]
+                    },
+                    "options": {
+                        "scales": {
+                            "y": {"title": {"display": True, "text": "Engagement"}},
+                            "x": {"title": {"display": True, "text": "Time"}}
+                        },
+                        "plugins": {
+                            "legend": {"display": True},
+                            "title": {"display": True, "text": "48-Hour Engagement Forecast"}
+                        }
+                    }
+                }
+                st.write("```chartjs\n" + str(chart_config) + "\n```")
+            except Exception as e:
+                st.warning(f"Failed to generate forecast: {e}")
+        else:
+            st.warning("Not enough data for trend forecasting.")
+
+        st.subheader("⏰ Optimal Posting Times")
+        filtered_df['hour'] = filtered_df['created_at'].dt.hour
+        hourly_engagement = filtered_df.groupby('hour')['engagement'].mean().reset_index()
+        if not hourly_engagement.empty:
+            chart_config = {
+                "type": "bar",
+                "data": {
+                    "labels": hourly_engagement['hour'].astype(str).tolist(),
+                    "datasets": [{
+                        "label": "Average Engagement",
+                        "data": hourly_engagement['engagement'].tolist(),
+                        "backgroundColor": "#9467bd",
+                        "borderColor": "#7f2a9c",
+                        "borderWidth": 1
+                    }]
+                },
+                "options": {
+                    "scales": {
+                        "y": {"title": {"display": True, "text": "Average Engagement"}},
+                        "x": {"title": {"display": True, "text": "Hour of Day"}}
+                    },
+                    "plugins": {
+                        "legend": {"display": False},
+                        "title": {"display": True, "text": "Optimal Posting Times"}
+                    }
+                }
+            }
+            st.write("```chartjs\n" + str(chart_config) + "\n```")
+        else:
+            st.warning("No data available for optimal posting times.")
+
+        st.subheader("📈 Predicting Engagement")
+        filtered_df = filtered_df.rename(columns={"created_at": "timestamp"})
+        try:
+            with st.spinner("Training ML model..."):
+                result = preprocess_and_train(filtered_df)
+            st.success("✅ Model trained successfully!")
+            st.write(f"**R² Score**: {result['r2_score']:.2f}")
+            st.write(f"**RMSE**: {result['rmse']:.2f}")
+            chart_df = result['X_test'].copy()
+            chart_df['Predicted Engagement'] = result['y_pred']
+            chart_df['Actual Engagement'] = result['y_test'].values
+            chart_config = {
+                "type": "line",
+                "data": {
+                    "labels": chart_df.index.astype(str).tolist(),
+                    "datasets": [
+                        {
+                            "label": "Predicted Engagement",
+                            "data": chart_df['Predicted Engagement'].tolist(),
+                            "borderColor": "#9467bd",
+                            "backgroundColor": "rgba(148, 103, 189, 0.2)",
+                            "fill": False
+                        },
+                        {
+                            "label": "Actual Engagement",
+                            "data": chart_df['Actual Engagement'].tolist(),
+                            "borderColor": "#d62728",
+                            "backgroundColor": "rgba(214, 39, 40, 0.2)",
+                            "fill": False
+                        }
+                    ]
+                },
+                "options": {
+                    "scales": {
+                        "y": {"title": {"display": True, "text": "Engagement"}},
+                        "x": {"title": {"display": True, "text": "Post Index"}}
+                    },
+                    "plugins": {
+                        "legend": {"display": True},
+                        "title": {"display": True, "text": "Predicted vs Actual Engagement"}
+                    }
+                }
+            }
+            st.write("```chartjs\n" + str(chart_config) + "\n```")
+        except Exception as e:
+            st.error(f"❌ Model error: {e}")
+
+    else:
+        st.warning(f"No posts found for '{topic}'. Check if the keyword exists in the data.")
