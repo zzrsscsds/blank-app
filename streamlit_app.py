@@ -13,7 +13,6 @@ from wordcloud import WordCloud
 import matplotlib.pyplot as plt
 from statsmodels.tsa.arima.model import ARIMA
 import numpy as np
-import os
 
 # Download NLTK resources if not already present
 try:
@@ -32,18 +31,10 @@ except LookupError:
 st.set_page_config(layout="wide")
 st.title("📊 Real-Time Social Media Trend Forecaster")
 
-st.write("当前目录文件列表：", os.listdir())
-if "combined_social_data.csv" in os.listdir():
-    st.success("找到了 combined_social_data.csv 文件！")
-    df = pd.read_csv("combined_social_data.csv")
-    st.write(df.head())
-else:
-    st.error("未找到 combined_social_data.csv！")
-
 @st.cache_data
 def load_combined_data():
     try:
-        df = pd.read_csv("combined_social_data.csv")
+        df = pd.read_csv("data/combined_social_data.csv")
         df['created_at'] = pd.to_datetime(df['created_at'], errors='coerce')
         st.write(f"Loaded CSV with shape: {df.shape}")
         st.write(f"Columns: {list(df.columns)}")
@@ -90,14 +81,13 @@ def preprocess_and_train(df):
         'y_pred': y_pred
     }
 
+# Load and filter data
 combined_df = load_combined_data()
-
 if combined_df.empty:
     st.warning("No data loaded. Please check 'combined_social_data.csv'.")
     st.stop()
 
 filtered_df = pd.DataFrame()
-
 topic = st.text_input("Enter a topic keyword (e.g., #Fitness, Climate Change):", "#Fitness")
 
 if topic:
@@ -110,152 +100,87 @@ if topic:
     st.write(f"Total posts found: {filtered_df.shape[0]}")
 
     if not filtered_df.empty:
-        # Drop rows with empty or NaN 'text', but preserve as much data as possible
         filtered_df = filtered_df.dropna(subset=['text'])
         filtered_df['text'] = filtered_df['text'].astype(str)
 
-        # Compute sentiment if missing or invalid
         if 'sentiment' not in filtered_df.columns or filtered_df['sentiment'].isnull().all():
             filtered_df['sentiment'] = filtered_df['text'].apply(compute_sentiment)
 
-        # Compute engagement if missing
         if 'engagement' not in filtered_df.columns:
-            filtered_df['engagement'] = 0  # Placeholder; replace with actual logic if available
-
-        st.write(f"Filtered DataFrame shape after dropping NaNs: {filtered_df.shape}")
-        st.write("Sample texts:", filtered_df['text'].head(10).tolist())
+            filtered_df['engagement'] = 0
 
         filtered_df['sentiment'] = pd.to_numeric(filtered_df['sentiment'], errors='coerce')
         filtered_df['engagement'] = pd.to_numeric(filtered_df['engagement'], errors='coerce')
-        filtered_df = filtered_df.dropna(subset=["created_at"])  # Only require valid 'created_at'
+        filtered_df = filtered_df.dropna(subset=["created_at"])
 
-        # Engagement and Sentiment Over Time
         time_series = filtered_df.groupby(filtered_df['created_at'].dt.floor('H')).agg({
             'engagement': 'sum',
             'sentiment': 'mean'
         }).reset_index()
 
+        st.success("✅ Data preparation completed. Ready for visualization and modeling.")
+
+# --- 时间趋势图 ---
         st.subheader("📊 Engagement & Sentiment Over Time")
         if not time_series.empty:
-            labels = time_series['created_at'].dt.strftime('%Y-%m-%d %H:%M').tolist()
-            engagement_data = time_series['engagement'].fillna(0).tolist()
-            sentiment_data = time_series['sentiment'].fillna(0).tolist()
-            chart_config = {
-                "type": "line",
-                "data": {
-                    "labels": labels,
-                    "datasets": [
-                        {
-                            "label": "Engagement (Likes + Retweets)",
-                            "data": engagement_data,
-                            "borderColor": "#1f77b4",
-                            "backgroundColor": "rgba(31, 119, 180, 0.2)",
-                            "fill": False,
-                            "yAxisID": "y"
-                        },
-                        {
-                            "label": "Sentiment (Mean)",
-                            "data": sentiment_data,
-                            "borderColor": "#ff7f0e",
-                            "backgroundColor": "rgba(255, 127, 14, 0.2)",
-                            "fill": False,
-                            "yAxisID": "y1"
-                        }
-                    ]
-                },
-                "options": {
-                    "scales": {
-                        "y": {
-                            "type": "linear",
-                            "display": True,
-                            "position": "left",
-                            "title": {"display": True, "text": "Engagement"}
-                        },
-                        "y1": {
-                            "type": "linear",
-                            "display": True,
-                            "position": "right",
-                            "title": {"display": True, "text": "Sentiment"},
-                            "grid": {"drawOnChartArea": False}
-                        },
-                        "x": {
-                            "title": {"display": True, "text": "Time"}
-                        }
-                    },
-                    "plugins": {
-                        "legend": {"display": True},
-                        "title": {"display": True, "text": "Engagement & Sentiment Over Time"}
-                    }
-                }
-            }
-            st.write("```chartjs\n" + str(chart_config) + "\n```")
+            fig, ax = plt.subplots()
+            ax.plot(time_series['created_at'], time_series['engagement'], label='Engagement (Likes + Retweets)', color='tab:blue')
+            ax.set_ylabel('Engagement', color='tab:blue')
+            ax.tick_params(axis='y', labelcolor='tab:blue')
+
+            ax2 = ax.twinx()
+            ax2.plot(time_series['created_at'], time_series['sentiment'], label='Sentiment (Mean)', color='tab:orange')
+            ax2.set_ylabel('Sentiment', color='tab:orange')
+            ax2.tick_params(axis='y', labelcolor='tab:orange')
+
+            ax.set_xlabel('Time')
+            ax.set_title('Engagement & Sentiment Over Time')
+            fig.autofmt_xdate()
+            st.pyplot(fig)
         else:
             st.warning("No data available for engagement and sentiment trends. Check if 'created_at' is valid.")
 
+        # --- 情绪分布柱状图 ---
         st.subheader("💬 Sentiment Distribution")
         if filtered_df['sentiment'].notnull().sum() > 0:
             sentiment_binned = pd.cut(filtered_df['sentiment'], bins=10)
             sentiment_counts = sentiment_binned.value_counts().sort_index()
-            chart_config = {
-                "type": "bar",
-                "data": {
-                    "labels": [str(interval) for interval in sentiment_counts.index],
-                    "datasets": [{
-                        "label": "Sentiment Distribution",
-                        "data": sentiment_counts.tolist(),
-                        "backgroundColor": "#2ca02c",
-                        "borderColor": "#1f77b4",
-                        "borderWidth": 1
-                    }]
-                },
-                "options": {
-                    "scales": {
-                        "y": {"title": {"display": True, "text": "Count"}},
-                        "x": {"title": {"display": True, "text": "Sentiment Range"}}
-                    },
-                    "plugins": {
-                        "legend": {"display": False},
-                        "title": {"display": True, "text": "Sentiment Distribution"}
-                    }
-                }
-            }
-            st.write("```chartjs\n" + str(chart_config) + "\n```")
+            fig, ax = plt.subplots()
+            sentiment_counts.plot(kind='bar', ax=ax, color='tab:green')
+            ax.set_title('Sentiment Distribution')
+            ax.set_xlabel('Sentiment Range')
+            ax.set_ylabel('Count')
+            st.pyplot(fig)
         else:
             st.warning("No sentiment data available to display distribution.")
 
-        st.subheader("🔍 Sample Posts")
-        st.dataframe(filtered_df[['created_at', 'text', 'sentiment', 'engagement']].head(10))
-
-        st.subheader("🌐 Word Cloud")
-        text = " ".join(filtered_df['text'].tolist())
-        if text.strip():
-            wordcloud = WordCloud(width=800, height=400, background_color='white', max_words=100).generate(text)
+        # --- 最佳发布时间 ---
+        st.subheader("⏰ Optimal Posting Times")
+        filtered_df['hour'] = filtered_df['created_at'].dt.hour
+        hourly_engagement = filtered_df.groupby('hour')['engagement'].mean().reset_index()
+        if not hourly_engagement.empty:
             fig, ax = plt.subplots()
-            ax.imshow(wordcloud, interpolation='bilinear')
-            ax.axis('off')
+            ax.bar(hourly_engagement['hour'], hourly_engagement['engagement'], color='mediumpurple')
+            ax.set_xlabel('Hour of Day')
+            ax.set_ylabel('Average Engagement')
+            ax.set_title('Optimal Posting Times')
             st.pyplot(fig)
         else:
-            st.warning("No text available for word cloud. Using sample text.")
-            wordcloud = WordCloud(width=800, height=400, background_color='white', max_words=100).generate("fitness gym workout motivation health")
-            fig, ax = plt.subplots()
-            ax.imshow(wordcloud, interpolation='bilinear')
-            ax.axis('off')
-            st.pyplot(fig)
+            st.warning("No data available for optimal posting times.")
 
-        st.subheader("🔍 Popular Subtopics within this Topic")
-        stop_words = set(stopwords.words('english')) - {'run', 'pump'}
-        texts = filtered_df['text'].tolist()
-        st.write(f"Number of posts after filtering: {len(texts)}")
-
-        processed_texts = []
-        for doc in texts:
-            tokens = [
-                word for word in word_tokenize(doc.lower())
-                if (word.isalnum() or word.startswith('#') or word in ['🦵🏽', '💪🏽']) and word not in stop_words
-            ]
-            processed_texts.append(" ".join(tokens))
-        processed_texts = [doc for doc in processed_texts if len(doc.split()) > 1]
-        st.write(f"Number of posts after cleaning: {len(processed_texts)}")
+        # --- 预测结果对比图 ---
+        st.subheader("📈 Predicted vs Actual Engagement")
+        chart_df = X_test.copy()
+        chart_df['Predicted Engagement'] = y_pred
+        chart_df['Actual Engagement'] = y_test.values
+        fig, ax = plt.subplots()
+        ax.plot(chart_df.index, chart_df['Predicted Engagement'], label='Predicted', color='tab:purple')
+        ax.plot(chart_df.index, chart_df['Actual Engagement'], label='Actual', color='tab:red')
+        ax.set_title('Predicted vs Actual Engagement')
+        ax.set_xlabel('Post Index')
+        ax.set_ylabel('Engagement')
+        ax.legend()
+        st.pyplot(fig)
 
         if len(processed_texts) >= 2:
             vectorizer = CountVectorizer(max_df=0.9, min_df=1, max_features=1000)
@@ -267,8 +192,9 @@ if topic:
                 topic_words = [words[i] for i in topic_dist.argsort()[-5:][::-1]]
                 st.write(f"**Topic {i+1}:** {', '.join(topic_words)}")
         else:
-            hashtags = filtered_df['text'].str.findall(r'#\w+').explode().value_counts().head(5)
+            hashtags = filtered_df['text'].str.findall(r'#\\w+').explode().value_counts().head(5)
             st.write("**Top Hashtags**: " + ", ".join(hashtags.index if not hashtags.empty else ["No hashtags found"]))
+
 
         st.subheader("📅 48-Hour Engagement Forecast")
         if len(time_series) >= 5:
@@ -340,52 +266,108 @@ if topic:
         else:
             st.warning("No data available for optimal posting times.")
 
-        st.subheader("📈 Predicting Engagement")
-        filtered_df = filtered_df.rename(columns={"created_at": "timestamp"})
+         st.subheader("📈 Predicting Engagement")
+
         try:
             with st.spinner("Training ML model..."):
                 result = preprocess_and_train(filtered_df)
+                
             st.success("✅ Model trained successfully!")
+            X_test = result['X_test']
+            y_test = result['y_test']
+            y_pred = result['y_pred']
+
             st.write(f"**R² Score**: {result['r2_score']:.2f}")
             st.write(f"**RMSE**: {result['rmse']:.2f}")
-            chart_df = result['X_test'].copy()
-            chart_df['Predicted Engagement'] = result['y_pred']
-            chart_df['Actual Engagement'] = result['y_test'].values
-            chart_config = {
-                "type": "line",
-                "data": {
-                    "labels": chart_df.index.astype(str).tolist(),
-                    "datasets": [
-                        {
-                            "label": "Predicted Engagement",
-                            "data": chart_df['Predicted Engagement'].tolist(),
-                            "borderColor": "#9467bd",
-                            "backgroundColor": "rgba(148, 103, 189, 0.2)",
-                            "fill": False
-                        },
-                        {
-                            "label": "Actual Engagement",
-                            "data": chart_df['Actual Engagement'].tolist(),
-                            "borderColor": "#d62728",
-                            "backgroundColor": "rgba(214, 39, 40, 0.2)",
-                            "fill": False
-                        }
-                    ]
-                },
-                "options": {
-                    "scales": {
-                        "y": {"title": {"display": True, "text": "Engagement"}},
-                        "x": {"title": {"display": True, "text": "Post Index"}}
-                    },
-                    "plugins": {
-                        "legend": {"display": True},
-                        "title": {"display": True, "text": "Predicted vs Actual Engagement"}
-                    }
-                }
-            }
-            st.write("```chartjs\n" + str(chart_config) + "\n```")
-        except Exception as e:
-            st.error(f"❌ Model error: {e}")
 
+            chart_df = X_test.copy()
+            chart_df['Predicted Engagement'] = y_pred
+            chart_df['Actual Engagement'] = y_test.values
+
+            fig, ax = plt.subplots()
+            ax.plot(chart_df.index, chart_df['Predicted Engagement'], label='Predicted', color='tab:purple')
+            ax.plot(chart_df.index, chart_df['Actual Engagement'], label='Actual', color='tab:red')
+            ax.set_title('Predicted vs Actual Engagement')
+            ax.set_xlabel('Post Index')
+            ax.set_ylabel('Engagement')
+            ax.legend()
+            st.pyplot(fig)
+
+        except Exception as e:
+            st.error(f"❌ Model training or plotting error: {e}")
+
+# Prophet Forecasting on Full Dataset (Global Time Series)
+st.subheader("📅 48-Hour Engagement Forecast (Global)")
+try:
+    from prophet import Prophet
+
+    global_ts = combined_df.copy()
+    global_ts['created_at'] = pd.to_datetime(global_ts['created_at'], errors='coerce')
+    global_ts = global_ts.dropna(subset=['created_at', 'engagement'])
+    global_ts = global_ts.groupby(global_ts['created_at'].dt.floor('h')).agg({
+        'engagement': 'sum'
+    }).reset_index()
+
+    if len(global_ts) >= 20:
+        df_prophet = global_ts.rename(columns={
+            'created_at': 'ds',
+            'engagement': 'y'
+        })
+
+        prophet_model = Prophet()
+        prophet_model.fit(df_prophet)
+
+        future = prophet_model.make_future_dataframe(periods=48, freq='h')
+        forecast = prophet_model.predict(future)
+
+        st.subheader("🔮 Global Forecast of Engagement (Next 48 Hours)")
+        fig1 = prophet_model.plot(forecast)
+        st.pyplot(fig1)
+
+        st.subheader("📈 Components of Global Trend")
+        fig2 = prophet_model.plot_components(forecast)
+        st.pyplot(fig2)
     else:
-        st.warning(f"No posts found for '{topic}'. Check if the keyword exists in the data.")
+        st.warning("📉 Not enough global time series data for Prophet prediction. Try with more complete dataset.")
+
+except ImportError:
+    st.error("Prophet library not found. Please run: pip install prophet")
+except Exception as e:
+    st.error(f"Prophet model error: {e}")
+
+        # Enhanced Regression Features for Engagement Prediction
+        st.subheader("📈 Predicting Engagement (Enhanced Features)")
+        filtered_df = filtered_df.rename(columns={"created_at": "timestamp"})
+        try:
+            with st.spinner("Training enhanced regression model..."):
+                filtered_df['hour'] = filtered_df['timestamp'].dt.hour
+                filtered_df['is_weekend'] = filtered_df['timestamp'].dt.dayofweek >= 5
+                filtered_df['text_length'] = filtered_df['text'].apply(len)
+                filtered_df['hashtag_count'] = filtered_df['text'].apply(lambda x: x.count('#'))
+                filtered_df['is_media'] = filtered_df['text'].str.contains('https://t.co', na=False).astype(int)
+
+                features = ['sentiment', 'text_length', 'hashtag_count', 'is_media', 'hour', 'is_weekend']
+                X = filtered_df[features].fillna(0)
+                y = filtered_df['engagement'].fillna(0)
+
+                if len(X) < 10:
+                    raise ValueError("Not enough data for regression training (min 10 rows required).")
+
+                X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+                model = RandomForestRegressor(n_estimators=100, random_state=42)
+                model.fit(X_train, y_train)
+                y_pred = model.predict(X_test)
+
+                st.success("✅ Enhanced Model trained successfully!")
+                st.write(f"**R² Score**: {r2_score(y_test, y_pred):.2f}")
+                st.write(f"**RMSE**: {np.sqrt(mean_squared_error(y_test, y_pred)):.2f}")
+
+                chart_df = X_test.copy()
+                chart_df['Predicted Engagement'] = y_pred
+                chart_df['Actual Engagement'] = y_test.values
+
+                st.line_chart(chart_df[['Predicted Engagement', 'Actual Engagement']])
+
+        except Exception as e:
+            st.error(f"❌ Enhanced model error: {e}")
+
