@@ -27,6 +27,11 @@ try:
     nltk.data.find('sentiment/vader_lexicon')
 except LookupError:
     nltk.download('vader_lexicon')
+#ONLY RUN THIS FILE ONCE
+
+import nltk
+nltk.download('stopwords')
+nltk.download('punkt')  
 
 st.set_page_config(layout="wide")
 st.title("📊 Real-Time Social Media Trend Forecaster")
